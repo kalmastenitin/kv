@@ -1,1 +1,2 @@
-/target
+target/
+kv_store.json
