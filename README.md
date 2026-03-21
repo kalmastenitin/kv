@@ -20,7 +20,7 @@ Built as the Phase 1 capstone project of a 6-month systems engineering roadmap.
 ## Build
 
 ```bash
-git clone https://github.com/your-username/kv
+git clone https://github.com/kalmastenitin/kv
 cd kv
 cargo build --release
 ```
