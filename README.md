@@ -95,7 +95,7 @@ The file is read on every command invocation and written after every mutation (`
 
 ## Roadmap
 
-- [ ] Async I/O with tokio
+- [x] Async I/O with tokio
 - [ ] TTL (time-to-live) per key
 - [ ] TCP server interface (Phase 2)
 - [ ] Raft consensus layer (Phase 4)
