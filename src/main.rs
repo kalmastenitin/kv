@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-
-use std::fs::File;
-use std::io::BufReader;
+use tokio::fs::read_to_string;
 
 use std::{io, num};
 
@@ -42,20 +40,22 @@ impl std::fmt::Display for AppError {
     }
 }
 
-fn load(path: &str) -> Result<HashMap<String, String>, AppError> {
-    let f = File::open(path)?;
-    let reader = BufReader::new(f);
-    
-    match serde_json::from_reader(reader) {
-        Ok(map) => Ok(map),
-        Err(e) if e.is_eof() => Ok(HashMap::new()),  // empty file = empty map
-        Err(e) => Err(AppError::Json(e)),
+async fn load(path: &str) -> Result<HashMap<String, String>, AppError> {
+  
+    match read_to_string(path).await {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
+        Err(e) => return Err(AppError::Io(e)),
+        Ok(content) => match serde_json::from_str(&content) {
+                Ok(map) => Ok(map),
+                Err(e) if e.is_eof() => Ok(HashMap::new()),
+                Err(e) => Err(AppError::Json(e)),
+            }
     }
 }
 
-fn save(data: &HashMap<String, String>, path: &str) -> Result<(), AppError> {
-    let file = File::create(path)?;
-    serde_json::to_writer_pretty(file, &data)?;
+async fn save(data: &HashMap<String, String>, path: &str) -> Result<(), AppError> {
+    let serialized = serde_json::to_string_pretty(&data)?;
+    tokio::fs::write(path, serialized).await?;
     Ok(())
 }
 
@@ -90,9 +90,10 @@ fn list(data: &HashMap<String, String>) {
     }
 }
 
-fn main() -> Result<(), AppError> {
+#[tokio::main]
+async fn main() -> Result<(), AppError> {
     let path = "kv_store.json";
-    let mut data = load(&path)?;
+    let mut data = load(&path).await?;
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -112,14 +113,14 @@ fn main() -> Result<(), AppError> {
                 return Err(AppError::NotFound("Missing Key or Value".to_string()));
             }
             set(&mut data, &args[2], &args[3])?;
-            save(&data, path)?;
+            save(&data, path).await?;
         }
         "delete" => {
             if args.len() < 3 {
                 return Err(AppError::NotFound("Missing Key".to_string()));
             }
             delete(&mut data, &args[2])?;
-            save(&data, path)?;
+            save(&data, path).await?;
         }
         "list" => list(&data),
         _ => {
