@@ -1,19 +1,16 @@
-# kv — CLI Key-Value Store in Rust
+# kv — Key-Value Store in Rust
 
-A minimal, persistent key-value store built in Rust. Data is stored as JSON on disk. No external database. No frameworks.
-
-Built as the Phase 1 capstone project of a 6-month systems engineering roadmap.
+A Cargo workspace containing two implementations of a key-value store, built across Phases 1 and 2 of a 6-month systems engineering roadmap.
 
 ---
 
-## Features
+## Projects
 
-- `set` — insert or update a key-value pair
-- `get` — retrieve a value by key
-- `delete` — remove a key
-- `list` — print all stored pairs
-- Persists to `kv_store.json` in the working directory
-- Custom error handling — no `unwrap()` in business logic
+### `cli-kv` — Phase 1
+A minimal, persistent CLI key-value store. Data is stored as JSON on disk. No external database. No frameworks.
+
+### `tcp-kv` — Phase 2
+An in-memory key-value store exposed over a raw TCP socket. Multi-threaded with a fixed thread pool. No frameworks.
 
 ---
 
@@ -27,9 +24,11 @@ cargo build --release
 
 ---
 
-## Usage
+## cli-kv Usage
 
 ```bash
+cd cli-kv
+
 # Set a value
 cargo run -- set name alice
 
@@ -53,9 +52,54 @@ cargo run -- get name
 
 ---
 
+## tcp-kv Usage
+
+```bash
+cd tcp-kv
+cargo run
+# Listening on port 8080
+
+# In another terminal — use nc to send commands
+echo "set name alice" | nc 127.0.0.1 8080
+# HTTP/1.1 200 OK
+# OK
+
+echo "get name" | nc 127.0.0.1 8080
+# HTTP/1.1 200 OK
+# alice
+
+echo "list" | nc 127.0.0.1 8080
+# HTTP/1.1 200 OK
+# name=alice
+
+echo "get missing" | nc 127.0.0.1 8080
+# HTTP/1.1 200 OK
+# missing Not Found
+```
+
+---
+
+## Architecture
+
+### cli-kv
+- Reads `kv_store.json` on every invocation
+- Writes back on every mutation (`set`, `delete`)
+- Custom `AppError` enum with `From` conversions
+- `?` operator for error propagation throughout
+- Async file I/O via tokio
+
+### tcp-kv
+- Fixed thread pool (4 workers) — no unbounded thread spawning
+- `Arc<Mutex<Receiver>>` — shared channel across worker threads
+- `Arc<Mutex<HashMap>>` — shared in-memory store across connections
+- Raw TCP socket — `bind` → `listen` → `accept` → `read` → `write`
+- In-memory only — data lives as long as the server runs
+
+---
+
 ## Error Handling
 
-All errors are typed via a custom `AppError` enum:
+Both projects use a custom `AppError` enum:
 
 | Variant | Cause |
 |---|---|
@@ -64,39 +108,34 @@ All errors are typed via a custom `AppError` enum:
 | `Parse` | Integer parse failure |
 | `NotFound` | Missing key or argument |
 
-Errors propagate via the `?` operator. `main` returns `Result<(), AppError>`.
-
 ---
 
-## Storage Format
+## What I Learned
 
-Data is stored as a flat JSON object in `kv_store.json`:
-
-```json
-{
-  "name": "alice",
-  "age": "30"
-}
-```
-
-The file is read on every command invocation and written after every mutation (`set`, `delete`).
-
----
-
-## What I Learned Building This
-
+**Phase 1 — cli-kv**
 - Ownership boundaries — `&HashMap` for reads, `&mut HashMap` for writes
 - `Result<T, E>` propagation with `?` across multiple error types
 - `From` trait — automatic error conversion at `?` sites
 - `serde_json` deserialization with graceful handling of missing/empty files
 - CLI argument parsing without external crates
+- Async file I/O with tokio
+
+**Phase 2 — tcp-kv**
+- Syscall chain — `socket` → `bind` → `listen` → `accept`
+- Thread pool pattern — fixed workers, channel-based work distribution
+- `Arc<Mutex<T>>` — shared mutable state across OS threads
+- Why `Mutex` is necessary — Rust prevents concurrent `&mut` at compile time
+- Trade-offs between thread-per-connection and thread pool models
 
 ---
 
 ## Roadmap
 
-- [x] Async I/O with tokio
+- [x] CLI KV store with JSON persistence (Phase 1)
+- [x] Async I/O with tokio (Phase 1)
+- [x] TCP server with thread pool (Phase 2)
 - [ ] TTL (time-to-live) per key
-- [ ] TCP server interface (Phase 2)
+- [ ] Atomics and lock-free structures (Phase 2)
+- [ ] epoll / io_uring (Phase 2)
 - [ ] Raft consensus layer (Phase 4)
-- [ ] Full distributed KV store (Phase 5 capstone)
+- [ ] Full distributed KV store with WAL (Phase 5 capstone)
