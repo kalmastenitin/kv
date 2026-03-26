@@ -1,5 +1,5 @@
 [workspace]
-members = [
-    "cli-kv",
+members = ["atomic_lock_free_structure",
+    "cli-kv", "epoll",
     "tcp-kv",
 ]
