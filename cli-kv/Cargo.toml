@@ -7,3 +7,17 @@ edition = "2024"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
+tikv-jemallocator = "0.5"
+
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["html_reports"] }
+memmap2 = "0.9.10"
+rand = "0.8"
+memchr = "2"
+arrayvec = "0.7"
+
+
+[[bench]]
+name = "kv_bench"
+harness = false

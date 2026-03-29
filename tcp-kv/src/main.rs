@@ -37,7 +37,7 @@ impl ThreadPool {
             let handle = thread::spawn(move || {
                 loop {
                     let stream = thread_rx.lock().unwrap().recv().unwrap();
-                    handle_connection(stream, Arc::clone(&worker_store));
+                    let _ = handle_connection(stream, Arc::clone(&worker_store));
                 }
             });
             let worker = Worker {
