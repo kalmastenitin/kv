@@ -213,7 +213,7 @@ All projects use a custom `AppError` enum:
 - [x] Flamegraph profiling (Phase 3)
 - [x] CPU cache + SIMD + allocator optimization (Phase 3)
 - [ ] TTL (time-to-live) per key
-- [ ] Raft consensus layer (Phase 4)
+- [x] Raft consensus layer (Phase 4)
 - [ ] LSM tree storage engine (Phase 4)
 - [ ] Write-ahead log (Phase 4)
 - [ ] Full distributed KV store with Raft + WAL (Phase 5 capstone)
