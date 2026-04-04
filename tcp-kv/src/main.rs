@@ -1,11 +1,10 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, mpsc};
-use std::{thread, vec};
 use std::{io, num};
-use std::io::Read;
-
+use std::{thread, vec};
 
 #[derive(Debug)]
 enum AppError {
@@ -13,7 +12,6 @@ enum AppError {
     Parse(num::ParseIntError),
     Json(serde_json::Error),
     NotFound(String),
-    
 }
 
 struct ThreadPool {
@@ -27,13 +25,13 @@ struct Worker {
 }
 
 impl ThreadPool {
-    fn new(size: usize, store: Arc<Mutex<HashMap<String,String>>>) -> ThreadPool {
+    fn new(size: usize, store: Arc<Mutex<HashMap<String, String>>>) -> ThreadPool {
         let (tx, rx) = mpsc::channel::<TcpStream>();
         let shared_rx = Arc::new(Mutex::new(rx));
         let mut pool = vec![];
         for i in 0..size {
             let thread_rx = Arc::clone(&shared_rx);
-            let worker_store = Arc::clone(&store); 
+            let worker_store = Arc::clone(&store);
             let handle = thread::spawn(move || {
                 loop {
                     let stream = thread_rx.lock().unwrap().recv().unwrap();
@@ -75,7 +73,6 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
-
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -87,24 +84,24 @@ impl std::fmt::Display for AppError {
     }
 }
 
-
 fn get(data: Arc<Mutex<HashMap<String, String>>>, key: &str) -> Result<String, String> {
     match data.lock().unwrap().get(key) {
         Some(value) => Ok(value.to_string()),
         None => Ok(format!("{} Not Found", key)),
     }
-    
 }
 
 fn set(data: Arc<Mutex<HashMap<String, String>>>, key: &str, value: &str) -> Result<(), AppError> {
-    match data.lock().unwrap().insert(key.to_string(), value.to_string()) {
+    match data
+        .lock()
+        .unwrap()
+        .insert(key.to_string(), value.to_string())
+    {
         Some(old) => println!("updated to value {}", old),
         None => println!("inserted value {}", value),
     }
     Ok(())
 }
-
-
 
 fn list(data: Arc<Mutex<HashMap<String, String>>>) -> String {
     data.lock()
@@ -115,7 +112,10 @@ fn list(data: Arc<Mutex<HashMap<String, String>>>) -> String {
         .join(", ")
 }
 
-fn handle_connection(mut stream: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) -> Result<(), AppError>  {
+fn handle_connection(
+    mut stream: TcpStream,
+    store: Arc<Mutex<HashMap<String, String>>>,
+) -> Result<(), AppError> {
     let mut buf = [0u8; 512];
     let n = stream.read(&mut buf).unwrap();
     let command = String::from_utf8_lossy(&buf[..n]);
@@ -123,16 +123,14 @@ fn handle_connection(mut stream: TcpStream, store: Arc<Mutex<HashMap<String, Str
         let key = command.trim().split(" ").last().unwrap();
         let value = get(store, key).unwrap();
         value.to_string()
-
     } else if command.contains("set") {
-        let value : Vec<&str> = command.trim().split(" ").collect::<Vec<&str>>();
+        let value: Vec<&str> = command.trim().split(" ").collect::<Vec<&str>>();
         if value.len() < 3 {
             "Missing Key or Value".to_string()
         } else {
             set(store, value[1], value[2])?;
             "OK".to_string()
         }
-        
     } else if command.contains("list") {
         list(store)
     } else {
@@ -143,7 +141,6 @@ fn handle_connection(mut stream: TcpStream, store: Arc<Mutex<HashMap<String, Str
     stream.write_all(http.as_bytes()).unwrap();
     Ok(())
 }
-
 
 fn main() -> Result<(), AppError> {
     let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));

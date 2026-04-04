@@ -41,15 +41,14 @@ impl std::fmt::Display for AppError {
 }
 
 async fn load(path: &str) -> Result<HashMap<String, String>, AppError> {
-  
     match read_to_string(path).await {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
         Err(e) => return Err(AppError::Io(e)),
         Ok(content) => match serde_json::from_str(&content) {
-                Ok(map) => Ok(map),
-                Err(e) if e.is_eof() => Ok(HashMap::new()),
-                Err(e) => Err(AppError::Json(e)),
-            }
+            Ok(map) => Ok(map),
+            Err(e) if e.is_eof() => Ok(HashMap::new()),
+            Err(e) => Err(AppError::Json(e)),
+        },
     }
 }
 

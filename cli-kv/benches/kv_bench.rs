@@ -1,12 +1,10 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use std::collections::HashMap;
+use arrayvec::ArrayString;
+use criterion::{Criterion, criterion_group, criterion_main};
+use memchr::memmem;
 use memmap2::Mmap;
+use std::collections::HashMap;
 use std::fs::File;
 use std::hint::black_box;
-use memchr::memmem;
-use arrayvec::ArrayString;
-
-
 
 fn bench_unsorted_branch(c: &mut Criterion) {
     let data: Vec<u64> = (0..1_000_000)
@@ -60,11 +58,9 @@ fn bench_serialize(c: &mut Criterion) {
     for i in 0..1000 {
         map.insert(format!("key{}", i), format!("value{}", i));
     }
-    
+
     c.bench_function("serialize 1000 keys", |b| {
-        b.iter(|| {
-            serde_json::to_string(&map).unwrap()
-        })
+        b.iter(|| serde_json::to_string(&map).unwrap())
     });
 }
 
@@ -74,11 +70,9 @@ fn bench_deserialize(c: &mut Criterion) {
         map.insert(format!("key{}", i), format!("value{}", i));
     }
     let json = serde_json::to_string(&map).unwrap();
-    
+
     c.bench_function("deserialize 1000 keys", |b| {
-        b.iter(|| {
-            serde_json::from_str::<HashMap<String, String>>(&json).unwrap()
-        })
+        b.iter(|| serde_json::from_str::<HashMap<String, String>>(&json).unwrap())
     });
 }
 
@@ -92,9 +86,7 @@ fn bench_file_read(c: &mut Criterion) {
     std::fs::write("/tmp/kv_bench.json", &json).unwrap();
 
     c.bench_function("file read 1000 keys", |b| {
-        b.iter(|| {
-            std::fs::read_to_string("/tmp/kv_bench.json").unwrap()
-        })
+        b.iter(|| std::fs::read_to_string("/tmp/kv_bench.json").unwrap())
     });
 }
 
@@ -106,9 +98,7 @@ fn bench_file_write(c: &mut Criterion) {
     let json = serde_json::to_string(&map).unwrap();
 
     c.bench_function("file write 1000 keys", |b| {
-        b.iter(|| {
-            std::fs::write("/tmp/kv_bench.json", &json).unwrap()
-        })
+        b.iter(|| std::fs::write("/tmp/kv_bench.json", &json).unwrap())
     });
 }
 
@@ -146,22 +136,21 @@ fn bench_fast_get(c: &mut Criterion) {
 fn fast_get(content: &str, key: &str) -> Option<String> {
     let needle = format!("\"{}\":", key);
     let start = content.find(&needle)?;
-    
+
     // skip past the key and colon
     let after_colon = &content[start + needle.len()..];
-    
+
     // skip whitespace, find opening quote
     let after_colon = after_colon.trim_start();
     if !after_colon.starts_with('"') {
         return None;
     }
-    let value_str = &after_colon[1..];  // skip opening quote
-    
+    let value_str = &after_colon[1..]; // skip opening quote
+
     // find closing quote
     let end = value_str.find('"')?;
     Some(value_str[..end].to_string())
 }
-
 
 fn bench_fast_get_liftime(c: &mut Criterion) {
     let mut map = HashMap::new();
@@ -169,7 +158,7 @@ fn bench_fast_get_liftime(c: &mut Criterion) {
         map.insert(format!("key{}", i), format!("value{}", i));
     }
     std::fs::write("/tmp/kv_bench.json", serde_json::to_string(&map).unwrap()).unwrap();
-    
+
     c.bench_function("fast get lifetime — string search", |b| {
         b.iter(|| {
             let content = std::fs::read_to_string("/tmp/kv_bench.json").unwrap();
@@ -177,20 +166,20 @@ fn bench_fast_get_liftime(c: &mut Criterion) {
         })
     });
 }
-fn fast_get_lifetime<'a>(content: &'a str, key: &str) -> Option<&'a str>  {
+fn fast_get_lifetime<'a>(content: &'a str, key: &str) -> Option<&'a str> {
     let needle = format!("\"{}\":", key);
     let start = content.find(&needle)?;
-    
+
     // skip past the key and colon
     let after_colon = &content[start + needle.len()..];
-    
+
     // skip whitespace, find opening quote
     let after_colon = after_colon.trim_start();
     if !after_colon.starts_with('"') {
         return None;
     }
-    let value_str = &after_colon[1..];  // skip opening quote
-    
+    let value_str = &after_colon[1..]; // skip opening quote
+
     // find closing quote
     let end = value_str.find('"')?;
     Some(&value_str[..end])
@@ -202,7 +191,7 @@ fn bench_fast_get_liftime_mmap(c: &mut Criterion) {
         map.insert(format!("key{}", i), format!("value{}", i));
     }
     std::fs::write("/tmp/kv_bench.json", serde_json::to_string(&map).unwrap()).unwrap();
-    
+
     c.bench_function("fast get lifetime mmap — string search", |b| {
         b.iter(|| {
             // let content = std::fs::read_to_string("/tmp/kv_bench.json").unwrap();
@@ -215,21 +204,20 @@ fn bench_fast_get_liftime_mmap(c: &mut Criterion) {
     });
 }
 
-
-fn fast_get_lifetime_mmap<'a>(content: &'a str, key: &str) -> Option<&'a str>  {
+fn fast_get_lifetime_mmap<'a>(content: &'a str, key: &str) -> Option<&'a str> {
     let needle = format!("\"{}\":", key);
     let start = content.find(&needle)?;
-    
+
     // skip past the key and colon
     let after_colon = &content[start + needle.len()..];
-    
+
     // skip whitespace, find opening quote
     let after_colon = after_colon.trim_start();
     if !after_colon.starts_with('"') {
         return None;
     }
-    let value_str = &after_colon[1..];  // skip opening quote
-    
+    let value_str = &after_colon[1..]; // skip opening quote
+
     // find closing quote
     let end = value_str.find('"')?;
     Some(&value_str[..end])
@@ -263,7 +251,6 @@ fn bench_col_major(c: &mut Criterion) {
     });
 }
 
-
 fn bench_flat_row_major(c: &mut Criterion) {
     c.bench_function("flat row major", |b| {
         b.iter(|| {
@@ -292,7 +279,6 @@ fn bench_flat_col_major(c: &mut Criterion) {
     });
 }
 
-
 fn bench_find_naive(c: &mut Criterion) {
     let mut map = HashMap::new();
     for i in 0..1000 {
@@ -300,11 +286,7 @@ fn bench_find_naive(c: &mut Criterion) {
     }
     let content = serde_json::to_string(&map).unwrap();
 
-    c.bench_function("find naive", |b| {
-        b.iter(|| {
-            content.find("\"key500\":")
-        })
-    });
+    c.bench_function("find naive", |b| b.iter(|| content.find("\"key500\":")));
 }
 
 fn bench_find_simd(c: &mut Criterion) {
@@ -316,12 +298,9 @@ fn bench_find_simd(c: &mut Criterion) {
     let finder = memmem::Finder::new("\"key500\":");
 
     c.bench_function("find simd (memchr)", |b| {
-        b.iter(|| {
-            finder.find(content.as_bytes())
-        })
+        b.iter(|| finder.find(content.as_bytes()))
     });
 }
-
 
 fn bench_fast_get_liftime_simd(c: &mut Criterion) {
     let mut map = HashMap::new();
@@ -329,7 +308,7 @@ fn bench_fast_get_liftime_simd(c: &mut Criterion) {
         map.insert(format!("key{}", i), format!("value{}", i));
     }
     std::fs::write("/tmp/kv_bench.json", serde_json::to_string(&map).unwrap()).unwrap();
-    
+
     c.bench_function("fast get lifetime simd — string search", |b| {
         b.iter(|| {
             // let content = std::fs::read_to_string("/tmp/kv_bench.json").unwrap();
@@ -342,12 +321,11 @@ fn bench_fast_get_liftime_simd(c: &mut Criterion) {
     });
 }
 
-
 fn fast_get_simd<'a>(content: &'a str, key: &str) -> Option<&'a str> {
     let needle = format!("\"{}\":", key);
     let finder = memmem::Finder::new(needle.as_bytes());
     let start = finder.find(content.as_bytes())?;
-    
+
     let after_colon = &content[start + needle.len()..];
     let after_colon = after_colon.trim_start();
     if !after_colon.starts_with('"') {
@@ -358,13 +336,12 @@ fn fast_get_simd<'a>(content: &'a str, key: &str) -> Option<&'a str> {
     Some(&value_str[..end])
 }
 
-
 fn fast_get_no_alloc<'a>(content: &'a str, key: &str) -> Option<&'a str> {
     let mut needle = ArrayString::<256>::new();
     needle.push('"');
     needle.push_str(key);
     needle.push_str("\":");
-    
+
     let start = content.find(needle.as_str())?;
     let after_colon = &content[start + needle.len()..];
     let after_colon = after_colon.trim_start();
@@ -394,9 +371,7 @@ fn bench_no_alloc_get(c: &mut Criterion) {
 
 fn bench_needle_heap(c: &mut Criterion) {
     c.bench_function("needle — heap format!", |b| {
-        b.iter(|| {
-            format!("\"{}\":", "key500")
-        })
+        b.iter(|| format!("\"{}\":", "key500"))
     });
 }
 
@@ -414,5 +389,10 @@ fn bench_needle_stack(c: &mut Criterion) {
 // criterion_group!(benches, bench_get_operation, bench_fast_get, bench_fast_get_liftime, bench_fast_get_liftime_mmap, bench_fast_get_liftime_simd);
 // criterion_group!(benches, bench_row_major, bench_col_major, bench_flat_row_major, bench_flat_col_major);
 // criterion_group!(benches, bench_unsorted_branch, bench_sorted_branch);
-criterion_group!(benches, bench_no_alloc_get, bench_needle_heap, bench_needle_stack);
+criterion_group!(
+    benches,
+    bench_no_alloc_get,
+    bench_needle_heap,
+    bench_needle_stack
+);
 criterion_main!(benches);
