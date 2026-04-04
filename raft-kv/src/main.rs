@@ -1,5 +1,6 @@
 mod node;
 mod rpc;
+mod log;
 
 use rpc::{Envelope, RaftMessage, RequestVoteArgs, AppendEntriesArgs};
 
@@ -63,7 +64,7 @@ async fn run_node(
     mut rx: mpsc::Receiver<Envelope>,
     inboxes: HashMap<u64, Inbox>,
 ) {
-    let mut node = RaftNode::new(id, peers);
+    let mut node = RaftNode::new(id, peers, &format!("/tmp/raft_node_{}.wal", id));
     let mut votes_received = 0u64;
 
     loop {
@@ -114,7 +115,7 @@ async fn run_node(
                     if reply.success {
                         // update match_index and next_index for this peer
                         let peer = envelope.from;
-                        let match_idx = *node.match_index.get(&peer).unwrap_or(&0);
+                        
                         // next_index advances to what we just sent
                         node.next_index.insert(peer, node.last_log_index() + 1);
                         node.match_index.insert(peer, node.last_log_index());

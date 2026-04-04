@@ -1,5 +1,8 @@
 // RequestVote AppendEntries messages
 
+use serde::{Serialize, Deserialize};
+
+
 #[derive(Debug, Clone)]
 pub struct RequestVoteArgs {
     pub term: u64,  // candidate's term
@@ -31,7 +34,7 @@ pub struct AppendEntriesReply {
     pub success: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub term: u64,
     pub command: String,        // "set key value" or "del key"
