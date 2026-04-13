@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "atomic_lock_free_structure",
-    "cli-kv", "epoll", "raft-kv",
+    "cli-kv", "epoll", "lsm-kv", "raft-kv",
     "tcp-kv",
 ]

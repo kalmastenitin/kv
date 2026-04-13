@@ -1,24 +1,23 @@
 // RequestVote AppendEntries messages
 
-use serde::{Serialize, Deserialize};
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct RequestVoteArgs {
-    pub term: u64,  // candidate's term
-    pub candidate_id: u64, // who is requesting vote
+    pub term: u64,           // candidate's term
+    pub candidate_id: u64,   // who is requesting vote
     pub last_log_index: u64, // candidate's last log entry index
-    pub last_log_term: u64, // candidate's last log entry term
+    pub last_log_term: u64,  // candidate's last log entry term
 }
 
 #[derive(Debug, Clone)]
 pub struct RequestVoteReply {
-    pub term: u64,      // current term to update in candidate
+    pub term: u64, // current term to update in candidate
     pub vote_granted: bool,
 }
 
 // AppendEntries - sent by leader for replication and heartbeats
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct AppendEntriesArgs {
     pub term: u64,
     pub leader_id: u64,
@@ -37,7 +36,7 @@ pub struct AppendEntriesReply {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub term: u64,
-    pub command: String,        // "set key value" or "del key"
+    pub command: String, // "set key value" or "del key"
 }
 
 #[derive(Debug, Clone)]

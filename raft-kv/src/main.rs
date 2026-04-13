@@ -1,13 +1,13 @@
+mod log;
 mod node;
 mod rpc;
-mod log;
 
-use rpc::{Envelope, RaftMessage, RequestVoteArgs, AppendEntriesArgs};
+use rpc::{AppendEntriesArgs, Envelope, RaftMessage, RequestVoteArgs};
 
+use node::{NodeState, RaftNode};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time;
-use node::{RaftNode, NodeState};
 
 type Inbox = mpsc::Sender<Envelope>;
 
@@ -27,10 +27,7 @@ async fn main() {
 
     // spawn one task per node
     for &id in &node_ids {
-        let peers: Vec<u64> = node_ids.iter()
-            .filter(|&&p| p != id)
-            .cloned()
-            .collect();
+        let peers: Vec<u64> = node_ids.iter().filter(|&&p| p != id).cloned().collect();
 
         let rx = receivers.remove(&id).unwrap();
         let inboxes_clone = inboxes.clone();
@@ -46,11 +43,13 @@ async fn main() {
 
     for &id in &node_ids {
         if let Some(inbox) = inboxes.get(&id) {
-            let _ = inbox.send(Envelope {
-                from: 0,
-                to: id,
-                message: RaftMessage::ClientCommand("set name alice".to_string()),
-            }).await;
+            let _ = inbox
+                .send(Envelope {
+                    from: 0,
+                    to: id,
+                    message: RaftMessage::ClientCommand("set name alice".to_string()),
+                })
+                .await;
         }
     }
 
@@ -111,11 +110,11 @@ async fn run_node(
                 }
                 RaftMessage::AppendEntriesReply(reply) => {
                     if node.state != NodeState::Leader { continue; }
-                    
+
                     if reply.success {
                         // update match_index and next_index for this peer
                         let peer = envelope.from;
-                        
+
                         // next_index advances to what we just sent
                         node.next_index.insert(peer, node.last_log_index() + 1);
                         node.match_index.insert(peer, node.last_log_index());
@@ -127,13 +126,13 @@ async fn run_node(
                         indices.sort();
                         let majority_idx = indices[indices.len() / 2];
 
-                        if majority_idx > node.commit_index 
+                        if majority_idx > node.commit_index
                             && node.log.get(majority_idx as usize - 1)
-                                .map(|e| e.term) == Some(node.current_term) 
+                                .map(|e| e.term) == Some(node.current_term)
                         {
                             node.commit_index = majority_idx;
-                            println!("Node {} committed index {} — '{}'", 
-                                id, 
+                            println!("Node {} committed index {} — '{}'",
+                                id,
                                 node.commit_index,
                                 node.log[node.commit_index as usize - 1].command);
                         }
@@ -142,7 +141,7 @@ async fn run_node(
                             node.last_applied += 1;
                             let cmd = &node.log[node.last_applied as usize - 1].command;
                             println!("Node {} applying: {}", id, cmd);
-                            
+
                         }
                     } else {
                         // follower rejected — decrement next_index and retry
@@ -166,7 +165,7 @@ async fn run_node(
                 // send heartbeat to all peers
                 for &peer_id in &node.peers {
                     let next_idx = *node.next_index.get(&peer_id).unwrap_or(&1);
-                    
+
                     // entries to send — everything from next_idx onwards
                     let entries = node.log.get((next_idx as usize - 1)..)
                         .unwrap_or(&[])

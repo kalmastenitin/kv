@@ -1,13 +1,13 @@
 // Raft node state machine
-use crate::rpc::{RequestVoteArgs, LogEntry, AppendEntriesReply, AppendEntriesArgs, RequestVoteReply};
+use crate::log::{Wal, WalRecord};
+use crate::rpc::{
+    AppendEntriesArgs, AppendEntriesReply, LogEntry, RequestVoteArgs, RequestVoteReply,
+};
+use rand::Rng;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use rand::Rng;
-use crate::log::{Wal, WalRecord};
-
 
 pub struct RaftNode {
-
     pub id: u64,         // identity
     pub peers: Vec<u64>, // ids of other index
 
@@ -22,14 +22,13 @@ pub struct RaftNode {
     pub state: NodeState,
 
     // leader only volatile state
-    pub next_index: HashMap<u64, u64>,      // for each peer, next log index to send
-    pub match_index: HashMap<u64, u64>,     // for each peer, highest confirmed index
+    pub next_index: HashMap<u64, u64>, // for each peer, next log index to send
+    pub match_index: HashMap<u64, u64>, // for each peer, highest confirmed index
 
     pub election_timeout: Duration,
     pub last_heartbeat: std::time::Instant,
 
     pub wal: Wal,
-
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -44,7 +43,6 @@ impl RaftNode {
         let mut rng = rand::thread_rng();
         let timeout_ms = rng.gen_range(150u64..300u64);
         let records = Wal::recover(wal_path).unwrap_or_default();
-      
 
         let mut node = RaftNode {
             id,
@@ -83,7 +81,10 @@ impl RaftNode {
     pub fn handle_request_vote(&mut self, args: RequestVoteArgs) -> RequestVoteReply {
         // rule 1 — candidate is behind, reject
         if args.term < self.current_term {
-            return RequestVoteReply { term: self.current_term, vote_granted: false };
+            return RequestVoteReply {
+                term: self.current_term,
+                vote_granted: false,
+            };
         }
         // rule 2 — candidate is ahead, step down
         if args.term > self.current_term {
@@ -95,26 +96,36 @@ impl RaftNode {
         }
 
         // rule 3 — check voted_for and log up-to-date
-        let can_vote = self.voted_for.is_none() 
-            || self.voted_for == Some(args.candidate_id);
+        let can_vote = self.voted_for.is_none() || self.voted_for == Some(args.candidate_id);
 
         let log_ok = args.last_log_term > self.last_log_term()
-            || (args.last_log_term == self.last_log_term() 
+            || (args.last_log_term == self.last_log_term()
                 && args.last_log_index >= self.last_log_index());
 
         if can_vote && log_ok {
-            self.wal.append(&WalRecord::Vote(Some(args.candidate_id))).unwrap();
+            self.wal
+                .append(&WalRecord::Vote(Some(args.candidate_id)))
+                .unwrap();
 
             self.voted_for = Some(args.candidate_id);
-            RequestVoteReply { term: self.current_term, vote_granted: true }
+            RequestVoteReply {
+                term: self.current_term,
+                vote_granted: true,
+            }
         } else {
-            RequestVoteReply { term: self.current_term, vote_granted: false }
+            RequestVoteReply {
+                term: self.current_term,
+                vote_granted: false,
+            }
         }
     }
 
     pub fn handle_append_entries(&mut self, args: AppendEntriesArgs) -> AppendEntriesReply {
         if args.term < self.current_term {
-            return AppendEntriesReply { term: self.current_term, success: false };
+            return AppendEntriesReply {
+                term: self.current_term,
+                success: false,
+            };
         }
         if args.term >= self.current_term {
             self.state = NodeState::Follower;
@@ -123,11 +134,16 @@ impl RaftNode {
 
         if args.prev_log_index > 0 {
             // we must have an entry at prev_log_index with matching term
-            let our_term = self.log.get(args.prev_log_index as usize - 1)
+            let our_term = self
+                .log
+                .get(args.prev_log_index as usize - 1)
                 .map(|e| e.term)
                 .unwrap_or(0);
             if our_term != args.prev_log_term {
-                return AppendEntriesReply { term: self.current_term, success: false };
+                return AppendEntriesReply {
+                    term: self.current_term,
+                    success: false,
+                };
             }
         }
 
@@ -135,7 +151,7 @@ impl RaftNode {
             let idx = args.prev_log_index as usize + i;
             if idx < self.log.len() {
                 if self.log[idx].term != entry.term {
-                    self.log.truncate(idx);  // remove conflicting entries
+                    self.log.truncate(idx); // remove conflicting entries
                     self.log.push(entry.clone());
                 }
                 // else entry already matches — skip
@@ -147,8 +163,10 @@ impl RaftNode {
             self.commit_index = args.leader_commit.min(self.last_log_index());
         }
 
-        return AppendEntriesReply { term: self.current_term, success: true };
-     
+        return AppendEntriesReply {
+            term: self.current_term,
+            success: true,
+        };
     }
 
     pub fn propose(&mut self, command: String) -> Option<u64> {
@@ -156,10 +174,12 @@ impl RaftNode {
         if self.state != NodeState::Leader {
             return None;
         }
-        self.wal.append(&WalRecord::AppendLog(LogEntry {
-            term: self.current_term,
-            command: command.clone(),
-        })).unwrap();
+        self.wal
+            .append(&WalRecord::AppendLog(LogEntry {
+                term: self.current_term,
+                command: command.clone(),
+            }))
+            .unwrap();
         // append to own log
         self.log.push(LogEntry {
             term: self.current_term,
@@ -178,33 +198,38 @@ impl RaftNode {
     }
 
     pub fn start_election(&mut self) -> Vec<(u64, RequestVoteArgs)> {
-        self.wal.append(&WalRecord::Term(self.current_term + 1)).unwrap();
-        
+        self.wal
+            .append(&WalRecord::Term(self.current_term + 1))
+            .unwrap();
+
         self.wal.append(&WalRecord::Vote(Some(self.id))).unwrap();
         self.voted_for = Some(self.id);
         self.current_term += 1;
 
         self.state = NodeState::Candidate;
 
-        
         self.reset_election_timer();
-        
-        self.peers.iter().map(|&peer_id| {
-            (peer_id, RequestVoteArgs {
-                term: self.current_term,
-                candidate_id: self.id,
-                last_log_index: self.last_log_index(),
-                last_log_term: self.last_log_term(),
+
+        self.peers
+            .iter()
+            .map(|&peer_id| {
+                (
+                    peer_id,
+                    RequestVoteArgs {
+                        term: self.current_term,
+                        candidate_id: self.id,
+                        last_log_index: self.last_log_index(),
+                        last_log_term: self.last_log_term(),
+                    },
+                )
             })
-        }).collect()
+            .collect()
     }
 
     pub fn handle_vote_reply(&mut self, reply: RequestVoteReply, votes_received: &mut u64) -> bool {
-        
-
         if reply.term > self.current_term {
             self.current_term = reply.term;
-            self.state = NodeState::Follower;  // ← must step down
+            self.state = NodeState::Follower; // ← must step down
             self.voted_for = None;
             return false;
         };
@@ -229,16 +254,19 @@ impl RaftNode {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn make_node(id: u64) -> RaftNode {
-        let path = format!("/tmp/test_node_{}_{}.wal", id, 
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap().subsec_nanos());
+        let path = format!(
+            "/tmp/test_node_{}_{}.wal",
+            id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        );
         RaftNode::new(id, vec![1, 2, 3, 4], &path)
     }
 
@@ -279,15 +307,21 @@ mod tests {
         // expected: vote not granted
         let mut node = make_node(1);
         node.current_term = 1;
-        
-        node.handle_request_vote(RequestVoteArgs { 
-            term: 1, candidate_id: 1, last_log_index: 0, last_log_term: 0 
+
+        node.handle_request_vote(RequestVoteArgs {
+            term: 1,
+            candidate_id: 1,
+            last_log_index: 0,
+            last_log_term: 0,
         });
-        let reply = node.handle_request_vote(RequestVoteArgs { 
-            term: 1, candidate_id: 3, last_log_index: 0, last_log_term: 0 
+        let reply = node.handle_request_vote(RequestVoteArgs {
+            term: 1,
+            candidate_id: 3,
+            last_log_index: 0,
+            last_log_term: 0,
         });
         assert!(!reply.vote_granted);
-        assert_eq!(node.voted_for, Some(1)); 
+        assert_eq!(node.voted_for, Some(1));
     }
 
     #[test]
@@ -299,7 +333,7 @@ mod tests {
             leader_id: 2,
             prev_log_index: 0,
             prev_log_term: 0,
-            entries: vec![],        // empty = heartbeat
+            entries: vec![], // empty = heartbeat
             leader_commit: 0,
         });
         assert!(reply.success);
@@ -320,27 +354,30 @@ mod tests {
         node.current_term = 1;
         let messages = node.start_election();
 
-        assert_eq!(node.current_term, 2);           // term incremented
+        assert_eq!(node.current_term, 2); // term incremented
         assert_eq!(node.state, NodeState::Candidate);
-        assert_eq!(node.voted_for, Some(1));        // voted for itself
-        assert_eq!(messages.len(), 4);              // one message per peer
+        assert_eq!(node.voted_for, Some(1)); // voted for itself
+        assert_eq!(messages.len(), 4); // one message per peer
         assert!(messages.iter().all(|(_, args)| args.term == 2));
     }
 
     #[test]
     fn test_become_leader() {
-        let mut node = make_node(1);  // peers = [1,2,3,4] — 5 nodes total
+        let mut node = make_node(1); // peers = [1,2,3,4] — 5 nodes total
         node.current_term = 1;
         node.state = NodeState::Candidate;
         node.voted_for = Some(1);
-        
-        let mut votes = 1u64;  // already voted for itself
-        
+
+        let mut votes = 1u64; // already voted for itself
+
         // receive 2 more votes — majority of 5 is 3
-        let reply = RequestVoteReply { term: 1, vote_granted: true };
+        let reply = RequestVoteReply {
+            term: 1,
+            vote_granted: true,
+        };
         node.handle_vote_reply(reply.clone(), &mut votes);
         let became_leader = node.handle_vote_reply(reply.clone(), &mut votes);
-        
+
         assert!(became_leader);
         assert_eq!(node.state, NodeState::Leader);
     }
@@ -368,10 +405,13 @@ mod tests {
 
     #[test]
     fn test_wal_recovery() {
-        let path = format!("/tmp/test_recovery_{}.wal", 
+        let path = format!(
+            "/tmp/test_recovery_{}.wal",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap().subsec_nanos());
+                .unwrap()
+                .subsec_nanos()
+        );
 
         // node 1 — write state then drop
         {
@@ -379,9 +419,12 @@ mod tests {
             node.current_term = 3;
             node.wal.append(&WalRecord::Term(3)).unwrap();
             node.wal.append(&WalRecord::Vote(Some(2))).unwrap();
-            node.wal.append(&WalRecord::AppendLog(
-                crate::rpc::LogEntry { term: 3, command: "set x 1".to_string() }
-            )).unwrap();
+            node.wal
+                .append(&WalRecord::AppendLog(crate::rpc::LogEntry {
+                    term: 3,
+                    command: "set x 1".to_string(),
+                }))
+                .unwrap();
         } // node dropped here — simulates crash
 
         // node 2 — recover from same WAL path
