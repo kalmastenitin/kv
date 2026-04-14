@@ -11,6 +11,130 @@
 use std::collections::BTreeMap;
 use std::fs::{File};
 use std::io::{Write, Read, BufWriter, BufReader};
+use std::collections::{HashMap, HashSet};
+
+
+#[derive(Debug, Clone)]
+pub struct ORSet {
+    node_id: u64,
+    counter: u64,
+    // element → set of (node_id, counter) tags that added it
+    entries: HashMap<String, HashSet<(u64, u64)>>,
+    // tombstones — tags that have been removed
+    tombstones: HashSet<(u64, u64)>,
+}
+
+impl ORSet {
+    pub fn new(node_id: u64) -> Self {
+        ORSet {
+            node_id,
+            counter: 0,
+            entries: HashMap::new(),
+            tombstones: HashSet::new(),
+        }
+    }
+
+    pub fn add(&mut self, element: String) {
+        self.counter += 1;
+        let tag = (self.node_id, self.counter);
+        self.entries.entry(element).or_default().insert(tag);
+    }
+
+    pub fn remove(&mut self, element: &str) {
+        // remove all current tags for this element
+        if let Some(tags) = self.entries.get(element) {
+            for &tag in tags {
+                self.tombstones.insert(tag);
+            }
+        }
+    }
+
+    pub fn contains(&self, element: &str) -> bool {
+        if let Some(tags) = self.entries.get(element) {
+            // element exists if any of its tags are not tombstoned
+            tags.iter().any(|tag| !self.tombstones.contains(tag))
+        } else {
+            false
+        }
+    }
+
+    pub fn merge(&mut self, other: &ORSet) {
+        // merge tombstones
+        for &tag in &other.tombstones {
+            self.tombstones.insert(tag);
+        }
+        // merge entries
+        for (element, tags) in &other.entries {
+            let entry = self.entries.entry(element.clone()).or_default();
+            for &tag in tags {
+                entry.insert(tag);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PNCounter {
+    increments: GCounter,
+    decrements: GCounter,
+}
+
+impl PNCounter {
+    pub fn new(node_id: u64) -> Self {
+        PNCounter {
+            increments: GCounter::new(node_id),
+            decrements: GCounter::new(node_id),
+        }
+    }
+
+    pub fn increment(&mut self) {
+        self.increments.increment();
+    }
+
+    pub fn decrement(&mut self) {
+        self.decrements.increment();  // note: incrementing the decrement counter
+    }
+
+    pub fn value(&self) -> i64 {
+        self.increments.value() as i64 - self.decrements.value() as i64
+    }
+
+    pub fn merge(&mut self, other: &PNCounter) {
+        self.increments.merge(&other.increments);
+        self.decrements.merge(&other.decrements);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GCounter {
+    counts: HashMap<u64, u64>,  // node_id → increment count
+    node_id: u64,
+}
+
+impl GCounter {
+    pub fn new(node_id: u64) -> Self {
+        GCounter {
+            counts: HashMap::new(),
+            node_id,
+        }
+    }
+
+    pub fn increment(&mut self) {
+        let count = self.counts.entry(self.node_id).or_insert(0);
+        *count += 1;
+    }
+
+    pub fn value(&self) -> u64 {
+        self.counts.values().sum()
+    }
+
+    pub fn merge(&mut self, other: &GCounter) {
+        for (&node_id, &count) in &other.counts {
+            let entry = self.counts.entry(node_id).or_insert(0);
+            *entry = (*entry).max(count);
+        }
+    }
+}
 
 pub struct MemTable {
     data: BTreeMap<String, Option<String>>,
@@ -279,5 +403,142 @@ mod tests {
         engine.set("name".to_string(), "alice".to_string()).unwrap();
         engine.set("name".to_string(), "bob".to_string()).unwrap();
         assert_eq!(engine.get("name").unwrap(), Some("bob".to_string()));
+    }
+
+    use super::*;
+
+    #[test]
+    fn test_gcounter_increment() {
+        let mut c = GCounter::new(1);
+        c.increment();
+        c.increment();
+        assert_eq!(c.value(), 2);
+    }
+
+    #[test]
+    fn test_gcounter_merge() {
+        let mut c1 = GCounter::new(1);
+        c1.increment();
+        c1.increment();  // node1 incremented twice
+
+        let mut c2 = GCounter::new(2);
+        c2.increment();  // node2 incremented once
+
+        c1.merge(&c2);
+        assert_eq!(c1.value(), 3);  // 2 + 1
+    }
+
+    #[test]
+    fn test_gcounter_merge_commutative() {
+        let mut c1 = GCounter::new(1);
+        c1.increment();
+
+        let mut c2 = GCounter::new(2);
+        c2.increment();
+        c2.increment();
+
+        let  c1_clone = c1.clone();
+        let mut c2_clone = c2.clone();
+
+        c1.merge(&c2);      // c1 merge c2
+        c2_clone.merge(&c1_clone);  // c2 merge c1
+
+        // commutativity — same result either way
+        assert_eq!(c1.value(), c2_clone.value());
+    }
+
+    #[test]
+    fn test_gcounter_merge_idempotent() {
+        let mut c1 = GCounter::new(1);
+        c1.increment();
+        c1.increment();
+
+        let c1_clone = c1.clone();
+        c1.merge(&c1_clone);  // merge with self
+
+        assert_eq!(c1.value(), 2);  // idempotent — no change
+    }
+
+    #[test]
+    fn test_pncounter_increment_decrement() {
+        let mut c = PNCounter::new(1);
+        c.increment();
+        c.increment();
+        c.decrement();
+        assert_eq!(c.value(), 1);
+    }
+
+    #[test]
+    fn test_pncounter_merge() {
+        let mut c1 = PNCounter::new(1);
+        c1.increment();
+        c1.increment();  // +2
+
+        let mut c2 = PNCounter::new(2);
+        c2.increment();
+        c2.decrement();  // net 0
+
+        c1.merge(&c2);
+        assert_eq!(c1.value(), 2);  // 2 + 0 = 2
+    }
+
+    #[test]
+    fn test_pncounter_concurrent_decrement() {
+        // two nodes decrement concurrently during partition
+        let mut c1 = PNCounter::new(1);
+        c1.increment();
+        c1.increment();
+        c1.increment();  // c1 value = 3
+
+        let mut c2 = c1.clone();
+        c2.decrements = GCounter::new(2);  // c2 is node 2
+
+        c1.decrement();  // node 1 decrements
+        c2.decrement();  // node 2 decrements concurrently
+
+        c1.merge(&c2);
+        assert_eq!(c1.value(), 1);  // 3 - 1 - 1 = 1
+    }
+
+    #[test]
+    fn test_orset_add_contains() {
+        let mut s = ORSet::new(1);
+        s.add("alice".to_string());
+        assert!(s.contains("alice"));
+        assert!(!s.contains("bob"));
+    }
+
+    #[test]
+    fn test_orset_remove() {
+        let mut s = ORSet::new(1);
+        s.add("alice".to_string());
+        s.remove("alice");
+        assert!(!s.contains("alice"));
+    }
+
+    #[test]
+    fn test_orset_add_wins_concurrent() {
+        // concurrent add and remove — add should win
+        let mut s1 = ORSet::new(1);
+        s1.add("alice".to_string());
+
+        let mut s2 = s1.clone();
+        s2.node_id = 2;
+
+        s1.remove("alice");      // node 1 removes
+        s2.add("alice".to_string()); // node 2 adds concurrently
+
+        s1.merge(&s2);
+        assert!(s1.contains("alice"));  // add wins
+    }
+
+    #[test]
+    fn test_orset_merge_idempotent() {
+        let mut s1 = ORSet::new(1);
+        s1.add("alice".to_string());
+
+        let s1_clone = s1.clone();
+        s1.merge(&s1_clone);
+        assert!(s1.contains("alice"));
     }
 }

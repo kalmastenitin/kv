@@ -53,4 +53,11 @@ pub struct Envelope {
     pub from: u64,
     pub to: u64,
     pub message: RaftMessage,
+    pub trace_context: Option<TraceContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraceContext {
+    pub trace_id: u64,
+    pub parent_span_id: u64,
 }
